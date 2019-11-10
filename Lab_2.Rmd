@@ -2,36 +2,38 @@
 title: "Lab 2 - Classification"
 output: html_notebook
 ---
-# Data Mining & Search - Machine Learning for Text Classification in R
-
-## Outline
-
-<center>
-![](./images/outline.png)
-</center>
-
-## Step 0 - Install & Import Packages
-### Install Packages
-We will be using the R packages "caret" and "tm" to parse and machine-read the data and then subsequently train models.
-
+# Packages
+## Install and import packages
 ```{r}
-# install.packages("kernlab")
-# install.packages("caret")
-# install.packages("tm")
-# install.packages("dplyr")
-# install.packages("splitstackshape")
-# install.packages("e1071")
-# install.packages("textclean")
-# install.packages("mgsub")
-# install.packages("tictoc")
-# install.packages("klaR")
-# install.packages("promises")
-# install.packages("C50")
-# install.packages("inum")
+# List of packages needed for this tutorial
+list.of.packages <- c(
+    "kernlab",
+    "caret",
+    "tm",
+    "dplyr",
+    "splitstackshape",
+    "e1071",
+    "textclean",
+    "mgsub",
+    "tictoc",
+    "klaR",
+    "promises",
+    "C50",
+    "inum"
+)
+
+# Check which packages have not been installed yet
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+
+# If there are some packages that have not been installed yet, install them
+if (length(new.packages)) {
+    install.packages(new.packages)
+}
 ```
 
-### Import Packages
+## Import Packages
 ```{r}
+# Import packages
 library("dplyr")
 library(data.table)
 library("lattice")
@@ -48,8 +50,8 @@ library("e1071")
 library("tictoc")
 ```
 
-## Step 1 - Import & Preprocess Data
-### Import Dataset
+# Dataset
+## Import Dataset
 In this tutorial we use the **Reuters dataset**, which is a well-known dataset composed of several texts and used for **text classification** research.
 
 Reuters is an international business and financial news agency.
@@ -64,117 +66,96 @@ The most populated topics are:
 
 ```{r}
 # Import dataset from csv
-dataset <- fread("reuters_dataset.csv", encoding = 'UTF-8')
+original_dataset <- fread("reuters_dataset.csv", encoding = 'UTF-8')
 
+# Get the number of rows in dataset
+nrow(original_dataset)
+```
+
+```{r}
 # Print length of the most populated topics (classes) in the dataset
-cat('topic.acq', length(which(dataset$topic.acq == 1)), '\n')
-cat('topic.earn', length(which(dataset$topic.earn == 1)), '\n')
-cat('topic.money.fx', length(which(dataset$topic.money.fx == 1)), '\n')
+# Since articles can be classified in more than one class we print disjointet sets
+cat('topic.acq', length(which(original_dataset$topic.acq == 1
+                              & original_dataset$topic.earn == 0
+                              & original_dataset$topic.money.fx == 0)), '\n')
+
+cat('topic.earn', length(which(original_dataset$topic.acq == 0
+                               & original_dataset$topic.earn == 1
+                               & original_dataset$topic.money.fx == 0)), '\n')
+
+cat('topic.money.fx', length(which(original_dataset$topic.acq == 0
+                                   & original_dataset$topic.earn == 0
+                                   & original_dataset$topic.money.fx == 1)), '\n')
 ```
 
 As you can see the three classes have different cardinalities.
 
-### Create Balanced Training and Test Sets
+## Create a Balanced Dataset
 
 It is a good practice in Machine Learning to use only _balanced_ datasets.
 A **balanced dataset** is a dataset composed of an equal number of samples per class.
 
 For this reason we want to compose a new balanced dataset, conatining only articles regarding the three most popular topics in the original dataset.
 
-Another good practice is to divide the dataset into two subsets: **training set** and **test set**.
-
-1. **Training set:** The sample of data used to _fit_ the model. The actual dataset that we use to _train_ the model. The model sees and learns from this data. (Usually 75/80% of the dataset)
-
-2. **Test set:** The sample of data used to provide an unbiased evaluation of a final model fit on the training dataset. The Test dataset provides the _gold standard_ used to evaluate the model. It is only used once a model is completely trained. (The rest of the dataset - 20/25%)
-
 ```{r}
-# Create a new dataset containing only articles related to acq, earn and money.fx
-three_class_dataset = dataset[
-  (dataset$topic.acq == 1 & dataset$topic.earn == 0 & dataset$topic.money.fx == 0)
-  | (dataset$topic.acq == 0 & dataset$topic.earn == 1 & dataset$topic.money.fx == 0)
-  | (dataset$topic.acq == 0 & dataset$topic.earn == 0 & dataset$topic.money.fx == 1)]
+# Create a new original_dataset containing only articles related to acq, earn and money.fx
+# Each article must belong to a single class
+three_class_dataset = original_dataset[
+  (original_dataset$topic.acq == 1 & original_dataset$topic.earn == 0 & original_dataset$topic.money.fx == 0)
+  | (original_dataset$topic.acq == 0 & original_dataset$topic.earn == 1 & original_dataset$topic.money.fx == 0)
+  | (original_dataset$topic.acq == 0 & original_dataset$topic.earn == 0 & original_dataset$topic.money.fx == 1)]
 ```
 
 ```{r}
 # Take 800 articles from acq
-acq_dataset = three_class_dataset[three_class_dataset$topic.acq == 1]
-acq_dataset_800 = acq_dataset[1:800,]
-acq_dataset_800 = select(acq_dataset_800, pid, doc.text)
-```
-
-```{r}
-# Take 600 acq articles for the training dataset
-train_acq_dataset = acq_dataset_800[1:600,]
-```
-
-```{r}
-# Take 200 acq articles for the test dataset
-test_acq_dataset = acq_dataset_800[601:800,]
+acq_articles = three_class_dataset[three_class_dataset$topic.acq == 1]
+acq_articles = acq_articles[1:800,]
 ```
 
 ```{r}
 # Take 800 articles from earn
-earn_dataset = three_class_dataset[three_class_dataset$topic.earn == 1]
-earn_dataset_800 = earn_dataset[1:800,]
-earn_dataset_800 = select(earn_dataset_800, pid, doc.text)
+earn_articles = three_class_dataset[three_class_dataset$topic.earn == 1]
+earn_articles = earn_articles[1:800,]
 ```
 
 ```{r}
-# Take 600 acq articles for the training dataset
-train_earn_dataset = earn_dataset_800[1:600,]
-
-# Take 200 acq articles for the test dataset
-test_earn_dataset = earn_dataset_800[601:800,]
+# Take 800 articles from money
+money_articles = three_class_dataset[three_class_dataset$topic.money == 1]
+money_articles = money_articles[1:800,]
 ```
 
 ```{r}
-# Take 800 articles from earn
-money_fx_dataset = three_class_dataset[three_class_dataset$topic.money.fx == 1]
-money_fx_dataset_800 = money_fx_dataset[1:800,]
-money_fx_dataset_800 = select(money_fx_dataset_800, pid, doc.text)
-
-# Take 600 acq articles for the training dataset
-train_money_fx = money_fx_dataset_800[1:600,]
+# Put the parts together and create the dataset
+dataset <- rbind(acq_articles, earn_articles, money_articles)
 ```
 
 ```{r}
-# Take 200 acq articles for the test dataset (we skip one as it causes problems...)
-test_money_fx_1 = money_fx_dataset_800[601:696,]
-test_money_fx_2 = money_fx_dataset_800[698:801,]
+# Select columns "pid" (article ids) and "doc.text" (article texts)
+dataset = select(dataset, pid, doc.text)
 ```
 
 ```{r}
-# Put the parts togheter and create the training set
-train_set <- rbind(train_acq_dataset, train_earn_dataset, train_money_fx)
+# Rename columns "pid"-> "doc_id", "doc.text" -> "text"
+colnames(dataset)[1] <- "doc_id"
+colnames(dataset)[2] <- "text"
 ```
 
 ```{r}
-# Put the parts togheter and create the test set
-test_set <- rbind(test_acq_dataset, test_earn_dataset, test_money_fx_1, test_money_fx_2)
+# Print dataset number of articles
+cat('dataset articles: ', nrow(dataset))
 ```
 
-```{r}
-# Rename columns
-colnames(train_set)[1] <- "doc_id"
-colnames(train_set)[2] <- "text"
-colnames(test_set)[1] <- "doc_id"
-colnames(test_set)[2] <- "text"
-```
+# Data Preprocessing
 
-```{r}
-# Print training and test set cardinalities in order to check if they respect the ratio
-cat('train_set cardinality: ', lengths(train_set), '\n', 'test_set cardinality: ', lengths(test_set), '\n')
-```
-
-### Preprocess Data
-
-As we have two sets of samples (training and test sets) it's preferable to define a function for data preprocessing so that it can be reused on occurrence.
+Lets define a function for data preprocessing that can be used when needed.
 
 ```{r}
 # Data Preprocessing
 preprocess_dataset <- function(set) {
+  # Tranform the input in a VCorpus (datastructure provided by tm)
   corpus <- VCorpus(DataframeSource(set))
-  # Strip white spaces at the beginning and at the end to overcome some problems
+  # Strip white spaces at the beginning and at the end of preprocessing
+  # in order to avoid some problems later
   corpus <- tm_map(corpus, content_transformer(stripWhitespace))
   # User replace_contraction function from textclean package
   corpus <- tm_map(corpus, content_transformer(replace_contraction))
@@ -192,25 +173,23 @@ preprocess_dataset <- function(set) {
 Now that the preprocessing function as been defined we can call it on the training and test set in order to obtain clean sets.
 
 ```{r}
-# Training set preprocessing
-print("Training Set preprocessing...")
-train_set <- preprocess_dataset(train_set)
-# Test set preprocessing
-print("Test Set preprocessing...")
-test_set <- preprocess_dataset(test_set)
+# Preprocess dataset
+print("Starting dataset preprocessing...")
+dataset <- preprocess_dataset(dataset)
+print("Dataset preprocessing: done")
 ```
 
-### Create Representations
+## Create Representations
 
-Now it's time to create the actual representations of the texts contained in the training and test sets that will be used to feed the Machine Learning algorithms.
+Now it's time to create the actual representations of the texts contained in the dataset. They will be used to feed the Machine Learning algorithms.
 
-#### Feature Selection
+### Feature Selection
 
-A good practice before feeding samples to a Machine Learning algorithm is to preprocess samples removing low-relevant features from the rapresentations, this step is called **Feature Selection**.
+A good practice before feeding samples to a Machine Learning algorithm is to preprocess samples removing low-relevant features from the representations, this step is called **Feature Selection**.
 
 Feature selection techniques are used for four reasons:
 
-1. Simplification of models to make them easier to interpret by researchers/users (the problem of "_explainability_" is critic in field such as finance, heatlh, etc.);
+1. Simplification of models to make them easier to interpret by researchers/users (the problem of _"explainability"_ is critic in field such as finance, heatlh, etc.);
 2. Shorter training times (Simplier samples = faster learning);
 3. To avoid the _curse of dimensionality_ (An enormous amount of training data is required to ensure that there are several samples with each combination of values if the feature dimensionality is too high);
 4. Enhanced generalization by reducing _overfitting_ ("the production of an analysis that corresponds too closely or exactly to a particular set of data, and may therefore fail to fit additional data or predict future observations reliably", Oxford Dictionaries - It happens when the algorithm is "learning the samples" in the training set and not a real function);
@@ -240,7 +219,7 @@ apply_feature_selection_on_dtm <- function(dtm_fs, sparsity_value = 0.99, verbos
 }
 ```
 
-#### Corpus to Matrix Functions
+### Corpus to Matrix Functions
 
 ```{r}
 # Binary matrix
@@ -248,6 +227,7 @@ create_binary_matrix <- function(corpus, sparsity_value, verbose) {
   if (verbose) {
     print("Creating binary matrix...")
   }
+    
   dtm_binary <- DocumentTermMatrix(corpus, control = list(weighting = weightBin))
   dtm_binary <- apply_feature_selection_on_dtm(dtm_binary, sparsity_value, verbose)
   matrix_binary <- as.matrix(dtm_binary)
@@ -261,9 +241,11 @@ create_bigram_binary_matrix <- function(corpus, sparsity_value, verbose) {
   if (verbose) {
     print("Creating bigram binary matrix...")
   }
+    
   BigramTokenizer <- function(x) {
     unlist(lapply(ngrams(words(x), 2), paste, collapse = " "), use.names = FALSE)
   }
+    
   dtm_bigram_binary <- DocumentTermMatrix(corpus, control = list(tokenize = BigramTokenizer, weighting = weightBin))
   dtm_bigram_binary <- apply_feature_selection_on_dtm(dtm_bigram_binary, sparsity_value, verbose)
   matrix_bigram_binary <- as.matrix(dtm_bigram_binary)
@@ -317,6 +299,8 @@ create_bigram_tfidf_matrix <- function(corpus, sparsity_value, verbose) {
 }
 ```
 
+### Create Matrix Function
+
 On the top of the previous functions we build another function that permit us to call them and to control their parameters.
 
 ```{r}
@@ -341,15 +325,14 @@ create_matrix <- function(corpus, matrix_type, sparsity_value = 0.99, verbose = 
 }
 ```
 
-#### Create representations
+### Create representations
 
 Now we can create all the different matrices using the functions defined above.
+
 We will do it later, I leave here some commented lines of code for testing/debugging purpose.
-(Remember to use the same sparsity value for both sets.)
 
 ```{r}
-# train_matrix <- create_matrix(train_set, 'binary', sparsity_value=0.95, verbose=TRUE)
-# test_matrix <- create_matrix(test_set, 'binary', sparsity_value=0.95, verbose=TRUE)
+# dataset_matrix <- create_matrix(dataset, 'binary', sparsity_value=0.95, verbose=TRUE)
 ```
 
 #### Find Representations' Intersection
@@ -363,31 +346,57 @@ find_intersection_and_create_dataframe <- function(matrix_1, matrix_2) {
 }
 ```
 
-#### Label Training and Test Data
+### Label Training and Test Data
 
-Our dataset is almost ready to be fed into a Machine Learning algorithm, we only have to label each sample in both sets with the topic they are classified in.
+Label each sample with the topic they are classified in.
 
 ```{r}
-label_training_set <- function(df) {
+label_dataset <- function(df) {
   df$Topic <- ''
-  df[1:600,]$Topic <- 'acq'
-  df[601:1200,]$Topic <- 'earn'
-  df[1201:1800,]$Topic <- 'money_fx'
+  df[1:800,]$Topic <- 'acq'
+  df[801:1600,]$Topic <- 'earn'
+  df[1601:2400,]$Topic <- 'money_fx'
   return(df)
 }
 ```
 
-<h4 style="color:red">EXERCISE: complete label_test_set_function</h4>
+### Dataset Splitting
 
-**HINT**: Check above for the correct numbers...
+Another good practice is to divide the dataset into two subsets: **training set** and **test set**.
+
+1. **Training set:** The sample of data used to _fit_ the model. The actual dataset that we use to _train_ the model. The model sees and learns from this data. (Usually 75/80% of the dataset)
+
+
+2. **Test set:** The sample of data used to provide an unbiased evaluation of a final model fit on the training dataset. The Test dataset provides the _gold standard_ used to evaluate the model. It is only used once a model is completely trained. (The rest of the dataset - 20/25%)
 
 ```{r}
-label_test_set <- function(df) {
+split_dataset <- function(x) {
+    # Take 600 acq articles for training set
+    train_acq = x[1:600,]
+    # Take 200 acq articles for test set
+    test_acq = x[601:800,]
 
+    # Take 600 earn articles for training set
+    train_earn = x[801:1400,]
+    # Take 200 earn articles for test set
+    test_earn = x[1401:1600,]
 
-  ...
+    # Take 600 money articles for training set
+    train_money_fx = x[1601:2200,]
+    # Take 200 money articles for test set
+    test_money_fx = x[2201:2400,]
+
+    # Put parts togheter and create training set
+    train_set <- rbind(train_acq, train_earn, train_money_fx)
+
+    # Put parts togheter and create test set
+    test_set <- rbind(test_acq, test_earn, test_money_fx)
+    
+    return(list(train_set, test_set))
 }
 ```
+
+### Summarize Dataset Distribution
 
 We can summarize the class/topic distribution of training and test set with the following function:
 
@@ -399,11 +408,11 @@ summarize_distribution <- function(df) {
 }
 ```
 
-## Step 2 - Text Classification
+# Text Classification
 
-### Metrics & Evaluation Protocol
+## Metrics & Evaluation Protocol
 
-Before proceeding with the experiment we have to choose a "_measure of success_" (the metric(s) to use to evaluate the experiments) and to decide on an "_evaluation protocol_".
+Before proceeding with the experiment we have to choose a _"measure of success"_ (the metric(s) to use to evaluate the experiments) and to decide on an _"evaluation protocol"_.
 
 There are several different metrics used to evaluate Machine Learning models (we refer to Machine Learning models as the output of an algorithm's training process), in this tutorial, for simplicity, we use only **accuracy**.
 
@@ -419,15 +428,9 @@ As evaluation protocol we use the "**K-fold Cross Validation**". It can be summa
 2. for each partition $i$, train a model on the remaining $K – 1$ partitions, and evaluate it on partition $i$;
 3. the final score is the average of the $K$ scores obtained.
 
-<br />
-
-
 <center>
-![](./images/k-fold.png)
+    ![](./images/k-fold.png)
 </center>
-
-<br />
-<br />
 
 As said above, during the validation process, the training set is splitted in 2 parts, one used for training and one for evaluation. The second one is called **validation set**.
 
@@ -440,7 +443,7 @@ control <- trainControl(method="cv", number=10)
 metric <- "Accuracy"
 ```
 
-### Model Training Functions
+## Model Training Functions
 
 We are now ready do define some functions that train Machine Learning models.
 
@@ -499,39 +502,43 @@ train_rf_classifier <- function(train_df, metric, control) {
 train_nn_classifier <- function(train_df, metric, control) {
   tic("Neural Networks")
   set.seed(7)
-  model <- train(Topic~., data=train_df, method="nnet", metric=metric, trControl=control)
+  model <- train(Topic~., data=train_df, method="nnet", metric=metric, trControl=control, trace=FALSE)
   toc()
   return(model)
 }
 ```
 
-## Step 3 - Experiments
+# Experiments
 
-Now we are ready to put all this code togheter and get the results!
-
-If you have run all the cells above, the dataset should have been preprocessed and splitted into training and test sets and you can proceed creating the representations.
-
-If you haven't, just click on the "down arrow" on the top right corner of the cell below.
+Now we are ready to put all this code together and get the results!
 
 ```{r}
-  # Possible values:  binary, bigram_binary, tf, bigram_tf, tfidf, bigram_tfidf
-  wanted_matrix_type <- 'binary'
-  wanted_sparsity_value <- 0.95
-  wanted_verbose <- FALSE
+# Possible values:  binary, bigram_binary, tf, bigram_tf, tfidf, bigram_tfidf
+wanted_matrix_type <- 'binary'
+wanted_sparsity_value <- 0.95
+wanted_verbose <- FALSE
 
-  train_matrix <- create_matrix(train_set, wanted_matrix_type, wanted_sparsity_value, wanted_verbose)
-  test_matrix <- create_matrix(test_set, wanted_matrix_type, wanted_sparsity_value, wanted_verbose)
+dataset_matrix <- create_matrix(
+    dataset,
+    wanted_matrix_type,
+    wanted_sparsity_value,
+    wanted_verbose
+)
 
-  # Create intersection dataframes and label them
-  train_df <- find_intersection_and_create_dataframe(train_matrix, test_matrix)
-  test_df <- find_intersection_and_create_dataframe(test_matrix, train_matrix)
+# Convert matrix into datafram
+dataset_df <- data.frame(dataset_matrix)
 
-  train_df <- label_training_set(train_df)
-  test_df <- label_test_set(test_df)
+# Label dataset
+labeled_dataset_df <- label_dataset(dataset_df)
 
-  # Summarize distributions
-  print(summarize_distribution(train_df))
-  print(summarize_distribution(test_df))
+# Split dataset in training and test sets
+splitted_dataset = split_dataset(labeled_dataset_df)
+train_df = splitted_dataset[[1]]
+test_df = splitted_dataset[[2]]
+
+# Summarize distributions
+print(summarize_distribution(train_df))
+print(summarize_distribution(test_df))
 ```
 
 Once the representations have been created, it is possible to train the classifiers and to compare their training performances.
